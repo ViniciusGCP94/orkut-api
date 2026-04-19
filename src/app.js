@@ -1,45 +1,160 @@
-const express = require("express");
-const pool = require("./config/db"); 
+const express = require('express');
+const pool = require('./config/db')
+const validarUsuario = require('./validations/usuarios');
+const validarPost = require('./validations/posts');
 
 const app = express();
-app.use(express.json()); 
+app.use(express.json());
 
-app.get("/", (req, res) => {
-    res.send("<h1>Lanchonete DB - API Ativa!</h1>");
+function formatarData(data) {
+    return new Date(data).toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+    });
+}
+
+app.get('/', (req, res) => {
+    res.send('<h1>Bem-vindo à API do OrkutVNW!</h1>');
 });
 
-app.get("/pedidos", async (req, res) => {
+// GET dos usuários
+app.get('/usuarios', async (req, res) => {
+    try{
+        const resultado = await pool.query(`
+        SELECT
+           *
+        FROM usuarios;
+    `);
+        res.json(resultado.rows);
+
+    } catch (erro){
+        res.status(500).json({ error: 'Erro ao buscar dados dos usuários' });
+    }
+})
+
+// GET das postagens
+app.get('/posts', async (req, res) => {
     try {
         const resultado = await pool.query(`
-            SELECT 
-                p.id AS pedido_id,
-                c.nome AS cliente,
-                prod.nome AS produto,
-                ip.quantidade,
-                ip.preco_unidade
-            FROM pedidos p
-            JOIN clientes c ON p.cliente_id = c.id
-            JOIN itens_pedido ip ON ip.pedido_id = p.id
-            JOIN produtos prod ON ip.produto_id = prod.id
-            ORDER BY p.id DESC;
+        SELECT
+            usuarios.id AS usuario_id,
+            usuarios.nome,
+            postagens.titulo,
+            postagens.conteudo,
+            postagens.criado_em,
+            postagens.id AS post_id
+        FROM postagens
+        JOIN usuarios 
+        ON postagens.usuario_id = usuarios.id
+        ORDER BY postagens.criado_em DESC
         `);
-        res.json(resultado.rows);
-    } catch (erro) {
-        res.status(500).json({ erro: "Erro ao buscar pedidos da lanchonete" });
-    }
-});
 
-app.post("/produtos", async (req, res) => {
+        const dadosFormatados = resultado.rows.map((post) => ({
+            ...post,
+            criado_em: formatarData(post.criado_em),
+        }));
+
+        res.json(dadosFormatados);
+    }
+
+    catch (erro){
+        res.status(500).json({ error: 'Erro ao buscar os posts' });
+    }
+})
+
+
+//Post das postagens
+app.post('/posts', validarPost, async (req, res) => {
     try {
-        const { nome, preco } = req.body;
-        const resultado = await pool.query(
-            "INSERT INTO produtos (nome, preco) VALUES ($1, $2) RETURNING *",
-            [nome, preco]
+        const { titulo, conteudo, usuario_id } = req.body;
+        const resultado = await pool.query(`
+            INSERT INTO postagens (titulo, conteudo, usuario_id)
+            VALUES ($1, $2, $3)
+            RETURNING *`,
+            [titulo, conteudo, usuario_id]
         );
-        res.status(201).json(resultado.rows[0]);
-    } catch (erro) {
-        res.status(500).json({ erro: "Erro ao cadastrar produto" });
-    }
-});
+        const dadosFormatados = resultado.rows.map((post) => ({
+            ...post,
+            criado_em: formatarData(post.criado_em),
+        }));
 
+        res.status(201).json({
+            mensagem: 'Post criado com sucesso!',
+            post: dadosFormatados[0]
+        });
+    } catch (erro) {
+        res.status(500).json({ 
+            error: 'Erro ao criar a postagem' 
+        });
+    }
+})
+
+//Post dos usuários
+app.post('/usuarios', validarUsuario, async (req, res) => {
+    try {
+        const { nome, email, senha } = req.body;
+        const resultado = await pool.query(`
+            INSERT INTO usuarios (nome, email, senha)
+            VALUES ($1, $2, $3)
+            RETURNING *`,
+            [nome, email, senha]
+        );
+        const dadosFormatados = resultado.rows.map((post) => ({
+            ...post,
+            criado_em: formatarData(post.criado_em),
+        }));
+
+        res.status(201).json({
+            mensagem: 'Usuário criado com sucesso!',
+            usuario: dadosFormatados[0]
+        });
+
+    } catch (erro) {
+        res.status(500).json({
+            error: 'Erro ao criar o usuário'
+        });
+    }
+})
+
+
+app.put('/posts/:id', validarPost, async (req, res) => {
+    try{
+        const { id } = req.params;
+        const {titulo, conteudo} = req.body;
+        const resultado = await pool.query(`
+            UPDATE 
+            postagens SET titulo = $1, conteudo = $2 WHERE id = $3 RETURNING *`,
+            [titulo, conteudo, id],
+            );
+        const dadosFormatados = resultado.rows.map((post) => ({
+            ...post,
+            criado_em: formatarData(post.criado_em),
+        }));
+        res.status(200).json({
+            mensagem: 'Post atualizado com sucesso!',
+            post: dadosFormatados[0]
+            });
+    } catch (erro){
+        res.status(500).json({
+            error: 'Erro ao atualizar o post'
+        });
+    }
+})
+
+// DELETE dos posts
+app.delete('/posts/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query(`
+            DELETE FROM postagens WHERE id = $1 RETURNING *`,
+            [id],
+        );
+        res.status(200).json({
+            mensagem: 'Post deletado com sucesso!'
+    });
+    } catch (erro) {
+        res.status(500).json({
+            error: 'Erro ao deletar o post'
+        });
+    }
+})
 module.exports = app;
