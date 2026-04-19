@@ -1,7 +1,10 @@
+require("dotenv").config();
 const express = require('express');
 const pool = require('./config/db')
 const validarUsuario = require('./validations/usuarios');
 const validarPost = require('./validations/posts');
+const jwt = require('jsonwebtoken');
+const auth = require('./auth/authLogin');
 
 const app = express();
 app.use(express.json());
@@ -12,9 +15,34 @@ function formatarData(data) {
     });
 }
 
+
+//Login usuario
+app.post('/login', async (req, res) => {
+     try {
+        const {email, senha} = req.body;
+        const usuario = await pool.query(`
+            SELECT * FROM usuarios WHERE email=$1`, [email]);
+            if (usuario.rows.length === 0) {
+            return res.status(404).json({ error: 'Usuário não encontrado' });
+            }
+            if (senha !== usuario.rows[0].senha) {
+            return res.status(401).json({ error: 'Senha incorreta' });
+            }
+            const token = jwt.sign({id: usuario.rows[0].id}, process.env.JWT_SECRET, {expiresIn: '1h'});
+            //remover antes de subir para o github
+            console.log('login secreto', process.env.JWT_SECRET);
+            res.json({ token });
+     } catch (erro) {
+         console.log(erro);
+        res.status(500).json({ error: 'Erro ao realizar login' });
+     }
+})
+
 app.get('/', (req, res) => {
     res.send('<h1>Bem-vindo à API do OrkutVNW!</h1>');
 });
+
+
 
 // GET dos usuários
 app.get('/usuarios', async (req, res) => {
@@ -61,33 +89,6 @@ app.get('/posts', async (req, res) => {
     }
 })
 
-
-//Post das postagens
-app.post('/posts', validarPost, async (req, res) => {
-    try {
-        const { titulo, conteudo, usuario_id } = req.body;
-        const resultado = await pool.query(`
-            INSERT INTO postagens (titulo, conteudo, usuario_id)
-            VALUES ($1, $2, $3)
-            RETURNING *`,
-            [titulo, conteudo, usuario_id]
-        );
-        const dadosFormatados = resultado.rows.map((post) => ({
-            ...post,
-            criado_em: formatarData(post.criado_em),
-        }));
-
-        res.status(201).json({
-            mensagem: 'Post criado com sucesso!',
-            post: dadosFormatados[0]
-        });
-    } catch (erro) {
-        res.status(500).json({ 
-            error: 'Erro ao criar a postagem' 
-        });
-    }
-})
-
 //Post dos usuários
 app.post('/usuarios', validarUsuario, async (req, res) => {
     try {
@@ -116,6 +117,34 @@ app.post('/usuarios', validarUsuario, async (req, res) => {
 })
 
 
+
+//Post das postagens
+app.post('/posts', auth, validarPost, async (req, res) => {
+    try {
+        const { titulo, conteudo } = req.body;
+        const resultado = await pool.query(`
+            INSERT INTO postagens (titulo, conteudo, usuario_id)
+            VALUES ($1, $2, $3)
+            RETURNING *`,
+            [titulo, conteudo, req.usuario.id]
+        );
+        const dadosFormatados = resultado.rows.map((post) => ({
+            ...post,
+            criado_em: formatarData(post.criado_em),
+        }));
+
+        res.status(201).json({
+            mensagem: 'Post criado com sucesso!',
+            post: dadosFormatados[0]
+        });
+    } catch (erro) {
+        res.status(500).json({ 
+            error: 'Erro ao criar a postagem' 
+        });
+    }
+})
+
+//Atualização dos posts
 app.put('/posts/:id', validarPost, async (req, res) => {
     try{
         const { id } = req.params;
