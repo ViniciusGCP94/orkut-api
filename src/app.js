@@ -5,9 +5,12 @@ const validarUsuario = require('./validations/usuarios');
 const validarPost = require('./validations/posts');
 const jwt = require('jsonwebtoken');
 const auth = require('./auth/authLogin');
+const bcrypt = require('bcrypt');
+const cors = require('cors');
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
 function formatarData(data) {
     return new Date(data).toLocaleString('pt-BR', {
@@ -25,8 +28,9 @@ app.post('/login', async (req, res) => {
             if (usuario.rows.length === 0) {
             return res.status(404).json({ error: 'Usuário não encontrado' });
             }
-            if (senha !== usuario.rows[0].senha) {
-            return res.status(401).json({ error: 'Senha incorreta' });
+            const senhaValida = await bcrypt.compare(senha, usuario.rows[0].senha)
+            if (!senhaValida) {
+            return res.status(401).json({ error: 'Senha invalida' });
             }
             const token = jwt.sign({id: usuario.rows[0].id}, process.env.JWT_SECRET, {expiresIn: '1h'});
             //remover antes de subir para o github
@@ -93,11 +97,14 @@ app.get('/posts', async (req, res) => {
 app.post('/usuarios', validarUsuario, async (req, res) => {
     try {
         const { nome, email, senha } = req.body;
+
+        const senhaHash = await bcrypt.hash(senha, 10)
+
         const resultado = await pool.query(`
             INSERT INTO usuarios (nome, email, senha)
             VALUES ($1, $2, $3)
             RETURNING *`,
-            [nome, email, senha]
+            [nome, email, senhaHash]
         );
         const dadosFormatados = resultado.rows.map((post) => ({
             ...post,
