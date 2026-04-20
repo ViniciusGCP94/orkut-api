@@ -145,10 +145,19 @@ app.post('/posts', auth, validarPost, async (req, res) => {
 })
 
 //Atualização dos posts
-app.put('/posts/:id', validarPost, async (req, res) => {
+app.put('/posts/:id', auth, validarPost, async (req, res) => {
     try{
         const { id } = req.params;
         const {titulo, conteudo} = req.body;
+        const postExistente = await pool.query(`
+            SELECT * FROM postagens WHERE id = $1`, [id]);
+            if (postExistente.rows.length === 0){
+                return res.status(404).json({ error: 'Post não encontrado' });
+            }
+
+            if (postExistente.rows[0].usuario_id !== req.usuario.id) {
+                return res.status(403).json({ error: 'Acesso negado: você não é o autor deste post' });
+            }
         const resultado = await pool.query(`
             UPDATE 
             postagens SET titulo = $1, conteudo = $2 WHERE id = $3 RETURNING *`,
@@ -170,16 +179,23 @@ app.put('/posts/:id', validarPost, async (req, res) => {
 })
 
 // DELETE dos posts
-app.delete('/posts/:id', async (req, res) => {
+app.delete('/posts/:id', auth, async (req, res) => {
     try {
         const { id } = req.params;
-        await pool.query(`
-            DELETE FROM postagens WHERE id = $1 RETURNING *`,
-            [id],
-        );
-        res.status(200).json({
-            mensagem: 'Post deletado com sucesso!'
-    });
+
+        const postExistente = await pool.query(`SELECT * FROM postagens WHERE id = $1`, [id]);
+
+            if (postExistente.rows.length === 0){
+                return res.status(404).json({ error: 'Post não encontrado' });
+            }
+
+            if (postExistente.rows[0].usuario_id !== req.usuario.id) {
+                return res.status(403).json({ error: 'Acesso negado: você não é o autor deste post' });
+            }
+            await pool.query(`DELETE FROM postagens WHERE id = $1 RETURNING *`,[id]);
+            res.status(200).json({
+                mensagem: 'Post deletado com sucesso!'
+            });
     } catch (erro) {
         res.status(500).json({
             error: 'Erro ao deletar o post'
